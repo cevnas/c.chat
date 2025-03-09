@@ -4,7 +4,6 @@ import { useStore } from '../lib/store';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { clsx } from 'clsx';
-import { SettingsModal } from './SettingsModal';
 
 export function Sidebar() {
   const {
@@ -15,8 +14,8 @@ export function Sidebar() {
     setSidebarOpen,
     setChats,
     clearChatSession,
+    setShowSettingsPage,
   } = useStore();
-  const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingChatId, setEditingChatId] = useState<string | number | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
@@ -214,154 +213,153 @@ export function Sidebar() {
       )
     : chats;
 
+  const handleSettingsClick = () => {
+    setShowSettingsPage(true);
+  };
+
   return (
-    <>
-      <div
-        className={clsx(
-          'fixed inset-y-0 left-0 z-20 flex flex-col bg-gray-900 dark:bg-gray-950 transition-all duration-300',
-          sidebarOpen ? 'w-80' : 'w-0',
-          'overflow-hidden'
-        )}
-      >
-        <div className="flex h-16 items-center justify-between px-6 border-b border-gray-800">
-          <h1 className="text-xl font-bold text-white">c1.chat</h1>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-white dark:hover:bg-gray-800"
-          >
+    <div className={clsx(
+      "flex h-full flex-col border-r bg-gray-50 dark:border-gray-700 dark:bg-gray-800",
+      sidebarOpen ? "w-64" : "w-16"
+    )}>
+      <div className="flex items-center justify-between border-b p-4 dark:border-gray-700">
+        <h1 className={clsx(
+          "font-semibold text-gray-800 dark:text-white",
+          sidebarOpen ? "text-xl" : "sr-only"
+        )}>
+          Chats
+        </h1>
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="rounded-full p-1 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700"
+        >
+          {sidebarOpen ? (
             <ChevronLeft className="h-5 w-5" />
-          </button>
-        </div>
+          ) : (
+            <ChevronRight className="h-5 w-5" />
+          )}
+        </button>
+      </div>
 
-        <div className="p-4">
-          <button
-            onClick={createNewChat}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
-          >
-            <Plus className="h-4 w-4" />
-            New Chat
-          </button>
-        </div>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {sidebarOpen && (
+          <div className="p-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search chats..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-4 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-500 dark:focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        )}
 
-        <div className="px-4 mb-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search chats..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-2 py-2">
+            <button
+              onClick={createNewChat}
+              className={clsx(
+                "flex w-full items-center gap-3 rounded-md p-2 text-left text-gray-700 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700",
+                !sidebarOpen && "justify-center"
+              )}
+            >
+              <Plus className="h-5 w-5" />
+              {sidebarOpen && <span>New Chat</span>}
+            </button>
+          </div>
+
+          <div className="px-2">
+            <div className={clsx(
+              "mb-2 px-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400",
+              !sidebarOpen && "sr-only"
+            )}>
+              Recent Chats
+            </div>
+            <ul className="space-y-1">
+              {filteredChats.map((chat) => (
+                <li key={chat.id}>
+                  {editingChatId === chat.id ? (
+                    <div className="flex items-center gap-2 rounded-md p-2">
+                      <input
+                        type="text"
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        autoFocus
+                      />
+                      <button
+                        onClick={(e) => saveEditedChat(chat.id, e)}
+                        className="rounded p-1 text-green-600 hover:bg-gray-200 dark:text-green-400 dark:hover:bg-gray-700"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={(e) => cancelEditing(e)}
+                        className="rounded p-1 text-red-600 hover:bg-gray-200 dark:text-red-400 dark:hover:bg-gray-700"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className={clsx(
+                        "group flex items-center gap-3 rounded-md p-2",
+                        currentChat === chat.id
+                          ? "bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-white"
+                          : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700",
+                        !sidebarOpen && "justify-center"
+                      )}
+                    >
+                      <button
+                        onClick={() => setCurrentChat(chat.id)}
+                        className="flex flex-1 items-center gap-3 overflow-hidden"
+                      >
+                        <MessageSquare className="h-5 w-5 flex-shrink-0" />
+                        {sidebarOpen && (
+                          <span className="truncate">{chat.title}</span>
+                        )}
+                      </button>
+
+                      {sidebarOpen && (
+                        <div className="flex opacity-0 group-hover:opacity-100">
+                          <button
+                            onClick={(e) => startEditingChat(chat.id, chat.title, e)}
+                            className="rounded p-1 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-600"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={(e) => deleteChat(chat.id, e)}
+                            className="rounded p-1 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-600"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4">
-          {filteredChats.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {searchQuery ? 'No chats match your search.' : 'No chats yet. Create a new chat to get started.'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {filteredChats.map((chat) => (
-                <div
-                  key={chat.id}
-                  onClick={() => setCurrentChat(chat.id)}
-                  className={clsx(
-                    'group relative rounded-lg transition-colors',
-                    currentChat === chat.id
-                      ? 'bg-gray-800 dark:bg-gray-700'
-                      : 'hover:bg-gray-800 dark:hover:bg-gray-700'
-                  )}
-                >
-                  <div className={clsx(
-                    'flex items-center gap-3 px-4 py-3 text-left text-sm',
-                    currentChat === chat.id
-                      ? 'text-white'
-                      : 'text-gray-300'
-                  )}>
-                    <MessageSquare className="h-4 w-4 flex-shrink-0" />
-                    
-                    {editingChatId === chat.id ? (
-                      <div className="flex flex-1 items-center" onClick={e => e.stopPropagation()}>
-                        <input
-                          type="text"
-                          value={editingTitle}
-                          onChange={(e) => setEditingTitle(e.target.value)}
-                          className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-sm text-white focus:border-blue-500 focus:outline-none"
-                          autoFocus
-                        />
-                        <button 
-                          onClick={(e) => saveEditedChat(chat.id, e)}
-                          className="ml-1 rounded p-1 text-green-500 hover:bg-gray-700"
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
-                        <button 
-                          onClick={cancelEditing}
-                          className="rounded p-1 text-red-500 hover:bg-gray-700"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <span className="flex-1 truncate">{chat.title || 'New Chat'}</span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {format(new Date(chat.created_at), 'MMM d')}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  
-                  {/* Action buttons that appear on hover */}
-                  {editingChatId !== chat.id && (
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-1">
-                      <button
-                        onClick={(e) => startEditingChat(chat.id, chat.title, e)}
-                        className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white"
-                      >
-                        <Edit className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => deleteChat(chat.id, e)}
-                        className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-red-500"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-auto border-t border-gray-800 p-4">
+        <div className="border-t p-4 dark:border-gray-700">
           <button
-            onClick={() => setShowSettings(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white dark:hover:bg-gray-700"
+            onClick={handleSettingsClick}
+            className={clsx(
+              "flex w-full items-center gap-3 rounded-md p-2 text-left text-gray-700 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700",
+              !sidebarOpen && "justify-center"
+            )}
           >
-            <Settings className="h-4 w-4" />
-            Settings
+            <Settings className="h-5 w-5" />
+            {sidebarOpen && <span>Settings</span>}
           </button>
         </div>
       </div>
-
-      {!sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="fixed left-4 top-4 z-30 rounded-lg bg-gray-900 p-2 text-white shadow-lg transition-colors hover:bg-gray-800 dark:bg-gray-950 dark:hover:bg-gray-800"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
-      )}
-
-      {showSettings && (
-        <SettingsModal onClose={() => setShowSettings(false)} />
-      )}
-    </>
+    </div>
   );
 }

@@ -4,13 +4,14 @@ import { supabase } from './lib/supabase-client';
 import { ImprovedChatMessage } from './components/ImprovedChatMessage';
 import { Sidebar } from './components/Sidebar';
 import { useStore, Chat } from './lib/store';
-import { Auth } from '@supabase/auth-ui-react';
-import { ThemeSupa } from '@supabase/auth-ui-shared';
+import { CustomAuth } from './components/CustomAuth';
 import { ModelSelector } from './components/ModelSelector';
 import { User, Session } from '@supabase/supabase-js';
 import { FileUploader, FileInfo } from './components/FileUploader';
 import { createChatAttachmentsBucket } from './lib/createBucket';
 import { createClient } from '@supabase/supabase-js';
+import { motion, AnimatePresence } from 'framer-motion';
+import { SettingsPage } from './components/SettingsPage';
 
 interface FileAttachment {
   id: string;
@@ -37,7 +38,19 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [user, setUser] = useState<User | null>(null);
-  const { currentChat, gemini, settings, getChatSession, chats, sidebarOpen } = useStore();
+  const { 
+    sidebarOpen, 
+    setSidebarOpen, 
+    currentChat, 
+    setCurrentChat, 
+    chats, 
+    setChats,
+    showSettingsPage,
+    setShowSettingsPage,
+    settings,
+    getChatSession,
+    gemini
+  } = useStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -45,7 +58,6 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -153,6 +165,7 @@ export default function App() {
   // Apply theme when app loads
   useEffect(() => {
     const applyTheme = () => {
+      console.log('Applying theme:', settings.theme, '(loaded from localStorage)');
       if (settings.theme === 'dark') {
         document.documentElement.classList.add('dark');
       } else if (settings.theme === 'light') {
@@ -204,7 +217,7 @@ export default function App() {
           setMessages(data);
           
           // Initialize chat session with previous messages
-          if (data.length > 0 && gemini) {
+          if (data.length > 0 && settings.aiModel) {
             try {
               // Clear any existing history by recreating the session
               useStore.getState().clearChatSession(currentChat);
@@ -215,31 +228,74 @@ export default function App() {
               const initializeHistory = async () => {
                 console.log('Initializing chat history with previous messages...');
                 
-                // Only use the most recent messages to save tokens (last 10 message pairs)
-                const recentMessages = data.slice(-20);
-                console.log(`Using ${recentMessages.length} most recent messages out of ${data.length} total`);
-                
-                // Process messages in sequence
-                for (let i = 0; i < recentMessages.length; i++) {
-                  const msg = recentMessages[i];
+                try {
+                  // Get the most recent 20 messages
+                  const recentMessages = data.slice(-20);
+                  console.log(`Using ${recentMessages.length} most recent messages for history initialization (out of ${data.length} total)`);
                   
-                  try {
+                  // Create a concise, token-efficient summary of the conversation
+                  let conversationSummary = "Conversation history summary:\n\n";
+                  
+                  // Process messages in chronological order
+                  for (let i = 0; i < recentMessages.length; i++) {
+                    const msg = recentMessages[i];
+                    
+                    // Format with clear speaker identification using proper references
                     if (msg.is_ai) {
-                      // For AI messages, we need to add them as if they were part of the conversation
-                      // This is a bit of a hack, but it ensures the history is maintained
-                      await freshChatSession.chat.sendMessage("AI response: " + msg.content.substring(0, 500));
+                      // AI messages are referred to as "AI" or "Assistant"
+                      let aiMessage = `AI said: "${msg.content.substring(0, 150)}`;
+                      
+                      // Only add ellipsis if the message was truncated
+                      if (msg.content.length > 150) {
+                        aiMessage += '..."';
+                      } else {
+                        aiMessage += '"';
+                      }
+                      
+                      conversationSummary += aiMessage + "\n\n";
                     } else {
-                      // For user messages, we can add them directly
-                      // Truncate long messages to save tokens
-                      await freshChatSession.chat.sendMessage(msg.content.substring(0, 500));
+                      // User messages are referred to as "User"
+                      let userMessage = `User said: "${msg.content.substring(0, 150)}`;
+                      
+                      // Only add ellipsis if the message was truncated
+                      if (msg.content.length > 150) {
+                        userMessage += '..."';
+                      } else {
+                        userMessage += '"';
+                      }
+                      
+                      // Add attachment information if present
+                      if (msg.attachments && msg.attachments.length > 0) {
+                        userMessage += ` [User shared ${msg.attachments.length} file(s)]`;
+                      }
+                      
+                      conversationSummary += userMessage + "\n\n";
                     }
-                  } catch (err) {
-                    console.error('Error adding message to chat history:', err);
-                    // Continue with the next message even if this one fails
                   }
+                  
+                  // For the very last message, include the full content if it's important
+                  if (recentMessages.length > 0) {
+                    const lastMsg = recentMessages[recentMessages.length - 1];
+                    
+                    // Only add the full last message if it's not already complete in the summary
+                    if (lastMsg.content.length > 150) {
+                      if (lastMsg.is_ai) {
+                        conversationSummary += `AI's last complete message was: "${lastMsg.content}"\n\n`;
+                      } else {
+                        conversationSummary += `User's last complete message was: "${lastMsg.content}"\n\n`;
+                      }
+                    }
+                  }
+                  
+                  // Add the conversation summary as a single message to save tokens
+                  await freshChatSession.chat.sendMessage(conversationSummary);
+                  
+                  console.log('Chat history initialized with token-efficient summary');
+                  console.log('Summary length:', conversationSummary.length, 'characters');
+                  
+                } catch (err) {
+                  console.error('Error initializing chat history:', err);
                 }
-                
-                console.log('Chat history initialized successfully with', recentMessages.length, 'recent messages');
               };
               
               // Run initialization in the background
@@ -287,7 +343,7 @@ export default function App() {
     return () => {
       channel.unsubscribe();
     };
-  }, [currentChat, gemini, getChatSession]);
+  }, [currentChat, settings.aiModel, getChatSession]);
 
   // Function to upload files to Supabase Storage
   const uploadFiles = async (files: FileInfo[], chatId: string | number): Promise<FileAttachment[]> => {
@@ -429,12 +485,57 @@ export default function App() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!newMessage.trim() && selectedFiles.length === 0) || !user || !currentChat || isLoading) return;
-
+    
+    if ((newMessage.trim() === '' && selectedFiles.length === 0) || isLoading) {
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
-
+    
     try {
+      // Determine if this message needs context from previous messages
+      const needsContext = 
+        // Check if the message references previous conversation
+        newMessage.toLowerCase().includes("previous") ||
+        newMessage.toLowerCase().includes("before") ||
+        newMessage.toLowerCase().includes("earlier") ||
+        newMessage.toLowerCase().includes("last time") ||
+        newMessage.toLowerCase().includes("you said") ||
+        newMessage.toLowerCase().includes("i said") ||
+        newMessage.toLowerCase().includes("you mentioned") ||
+        newMessage.toLowerCase().includes("as i mentioned") ||
+        newMessage.toLowerCase().includes("remember") ||
+        // Check for follow-up questions
+        newMessage.trim().startsWith("why") ||
+        newMessage.trim().startsWith("how") ||
+        newMessage.trim().startsWith("what") ||
+        newMessage.trim().startsWith("when") ||
+        newMessage.trim().startsWith("where") ||
+        newMessage.trim().startsWith("who") ||
+        newMessage.trim().startsWith("which") ||
+        // Check for short messages that likely need context
+        (newMessage.trim().split(" ").length < 5 && messages.length > 0);
+      
+      // If this is a new conversation or doesn't need context, we can skip loading the history
+      if (messages.length === 0 || !needsContext) {
+        console.log('Skipping context loading - new conversation or context not needed');
+        // Clear any existing chat session to start fresh
+        if (currentChat) {
+          useStore.getState().clearChatSession(currentChat);
+          getChatSession(currentChat);
+        }
+      } else {
+        console.log('Using conversation context for this message');
+      }
+      
+      // Check if user and currentChat are available
+      if (!user || !currentChat) {
+        setIsLoading(false);
+        setError('User or chat session not found');
+        return;
+      }
+      
       console.log('Sending message to chat:', currentChat);
       
       // Upload files first if any
@@ -453,7 +554,7 @@ export default function App() {
       const userMessage: Record<string, unknown> = {
         content: newMessage.trim(),
         user_id: user.id,
-        username: user.email?.split('@')[0] || 'Anonymous',
+        username: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Anonymous',
         chat_id: currentChat,
         is_ai: false,
       };
@@ -515,7 +616,7 @@ export default function App() {
       // Check if this is the first message in the chat
       const shouldGenerateTitle = messages.length === 0;
 
-      if (gemini) {
+      if (settings.aiModel) {
         console.log('Generating AI response...');
         
         // Create a temporary AI message with empty content
@@ -638,9 +739,15 @@ export default function App() {
             // For multimodal content with images
             console.log('Using generateContent for multimodal input');
             
-            // First, add the text message to the chat history to maintain context
-            await chatSession.chat.sendMessage(newMessage + fileInfoPrompt);
-            console.log('Added text message to chat history');
+            // Add user message to chat history first with complete content
+            let userMessageWithImageDesc = newMessage;
+            if (imageParts.length > 0) {
+              userMessageWithImageDesc += ` [Included ${imageParts.length} image${imageParts.length > 1 ? 's' : ''}]`;
+            }
+            
+            // Add the full user message without truncation
+            await chatSession.chat.sendMessage(`User: ${userMessageWithImageDesc}`);
+            console.log('Added complete user message to chat history');
             
             // Now use the model directly for image analysis
             const imageModel = gemini.getGenerativeModel({ model: modelToUse });
@@ -685,25 +792,15 @@ export default function App() {
               is_ai: true,
             };
             
-            // Also add the AI response to the chat history
+            // Add AI response to chat history for future context
             try {
-              // We need to add the AI response to the history as well
-              // But we'll be token-efficient by only adding a summary
-              
-              // For the user message, just add the text without the file info
-              await chatSession.chat.sendMessage(newMessage.substring(0, 200));
-              
-              // For the AI response, add a truncated version
-              const responseSummary = fullResponse.length > 500 
-                ? fullResponse.substring(0, 500) + "... [truncated for token efficiency]" 
-                : fullResponse;
-              await chatSession.chat.sendMessage("AI: " + responseSummary);
-              
-              console.log('Added summarized conversation to chat history');
+              // Add the full AI response without truncation
+              await chatSession.chat.sendMessage(`AI: ${fullResponse}`);
+              console.log('Added complete AI response to chat history');
             } catch (historyError) {
               console.error('Error adding AI response to chat history:', historyError);
             }
-            
+
             const { error: aiMessageError } = await supabase
               .from('messages')
               .insert([aiMessage]);
@@ -714,6 +811,11 @@ export default function App() {
           } else {
             // Use streaming for text-only messages
             console.log('Using streaming for text-only message');
+            
+            // Add the full user message without truncation
+            await chatSession.chat.sendMessage(`User: ${newMessage}`);
+            console.log('Added complete user message to chat history');
+            
             streamResult = await chatSession.chat.sendMessageStream(newMessage + fileInfoPrompt);
             
             let fullResponse = '';
@@ -757,6 +859,15 @@ export default function App() {
               is_ai: true,
             };
             
+            // Add AI response to chat history for future context
+            try {
+              // Add the full AI response without truncation
+              await chatSession.chat.sendMessage(`AI: ${fullResponse}`);
+              console.log('Added complete AI response to chat history');
+            } catch (historyError) {
+              console.error('Error adding AI response to chat history:', historyError);
+            }
+
             const { error: aiMessageError } = await supabase
               .from('messages')
               .insert([aiMessage]);
@@ -852,204 +963,186 @@ export default function App() {
     });
   }
 
+  // Add a function to handle going back from settings
+  const handleBackFromSettings = () => {
+    setShowSettingsPage(false);
+  };
+
+  // Add handleKeyDown function to handle Enter key press
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (newMessage.trim() !== '' || selectedFiles.length > 0) {
+        sendMessage(e as unknown as React.FormEvent);
+      }
+    }
+  };
+
   if (!user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 dark:from-gray-950 dark:to-gray-900">
-        <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-2xl dark:bg-gray-800">
-          <h1 className="mb-8 text-center text-3xl font-bold text-gray-900 dark:text-white">Welcome to c1.chat</h1>
-          <Auth
-            supabaseClient={supabase}
-            appearance={{
-              theme: ThemeSupa,
-              style: {
-                button: {
-                  background: '#1d4ed8',
-                  color: 'white',
-                  borderRadius: '0.5rem',
-                },
-                anchor: {
-                  color: '#1d4ed8',
-                },
-                ...(settings.theme === 'dark' && {
-                  container: {
-                    backgroundColor: '#1f2937',
-                    color: 'white',
-                  },
-                  button: {
-                    background: '#3b82f6',
-                    color: 'white',
-                    borderRadius: '0.5rem',
-                  },
-                  anchor: {
-                    color: '#60a5fa',
-                  },
-                  input: {
-                    backgroundColor: '#374151',
-                    borderColor: '#4b5563',
-                    color: 'white',
-                  },
-                  label: {
-                    color: '#e5e7eb',
-                  },
-                }),
-              },
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 dark:from-gray-950 dark:to-gray-900 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <motion.div 
+            className="absolute inset-0 bg-grid-white/[0.2] [mask-image:linear-gradient(to_bottom,white,transparent)] dark:bg-grid-white/[0.1]" 
+            style={{ backgroundSize: '32px 32px' }}
+            animate={{ 
+              backgroundPosition: ['0px 0px', '32px 32px'],
             }}
-            providers={[]}
-          />
+            transition={{ 
+              duration: 20, 
+              ease: 'linear', 
+              repeat: Infinity 
+            }}
+          ></motion.div>
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 via-transparent to-purple-500/10"></div>
+        <div className="w-full max-w-md relative z-10">
+          <CustomAuth supabaseClient={supabase} theme={settings.theme === 'dark' ? 'dark' : 'light'} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 overflow-hidden">
-      {loading ? (
-        <div className="flex items-center justify-center w-full h-full">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-        </div>
-      ) : user ? (
-        <div className="h-full relative">
-          {/* Main content area with sidebar */}
-          <div className="flex h-full">
-            {/* Sidebar */}
-            <div 
-              className={`
-                fixed top-0 left-0 h-full z-10
-                ${sidebarOpen ? 'w-64' : 'w-16'} 
-                bg-gray-200 dark:bg-gray-800 transition-all duration-300 ease-in-out
-                ${!showSidebar && isMobile ? 'transform -translate-x-full' : ''}
-              `}
-            >
-              <Sidebar />
-            </div>
-            
-            {/* Main content */}
-            <div 
-              className="h-full w-full flex flex-col"
-              style={{
-                marginLeft: !isMobile ? (sidebarOpen ? '16rem' : '4rem') : 0
-              }}
-            >
-              <header className="flex items-center justify-between border-b bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-                {isMobile && (
-                  <button 
-                    onClick={() => setShowSidebar(!showSidebar)}
-                    className="p-2 mr-2 text-gray-500 dark:text-gray-400"
-                  >
-                    {showSidebar ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-                  </button>
-                )}
-                <h1 className="text-xl font-semibold text-gray-800 dark:text-white">
-                  {currentChat ? chats.find((c: Chat) => c.id === currentChat)?.title || 'Chat' : 'Select a chat'}
-                </h1>
-              </header>
-              
-              <main className="flex-1 overflow-hidden bg-white dark:bg-gray-800">
-                {currentChat ? (
-                  <>
-                    <div className="flex h-full flex-col">
-                      <div className="flex-1 overflow-y-auto p-4 bg-white dark:bg-gray-800">
-                        {isLoading && messages.length === 0 ? (
-                          <div className="flex h-full items-center justify-center">
-                            <div className="text-center">
-                              <div className="mb-2 h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600 mx-auto dark:border-gray-600 dark:border-t-blue-500"></div>
-                              <p className="text-gray-500 dark:text-gray-400">Loading messages...</p>
-                            </div>
-                          </div>
-                        ) : error ? (
-                          <div className="flex h-full items-center justify-center">
-                            <div className="rounded-lg bg-red-50 p-4 text-red-800 dark:bg-red-900/30 dark:text-red-300">
-                              <p>{error}</p>
-                              <button 
-                                onClick={() => window.location.reload()}
-                                className="mt-2 rounded-md bg-red-100 px-3 py-1 text-sm font-medium text-red-800 hover:bg-red-200 dark:bg-red-800/30 dark:text-red-300 dark:hover:bg-red-700/30"
-                              >
-                                Reload
-                              </button>
-                            </div>
-                          </div>
-                        ) : messages.length === 0 ? (
-                          <div className="flex h-full items-center justify-center">
-                            <p className="text-gray-500 dark:text-gray-400">No messages yet. Start a conversation!</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            {messages.map((message) => (
-                              <ImprovedChatMessage 
-                                key={message.id} 
-                                message={message.content}
-                                timestamp={message.created_at}
-                                isCurrentUser={message.user_id === user?.id}
-                                username={message.username}
-                                isAi={message.is_ai}
-                                aiModel={message.is_ai ? settings.aiModel : undefined}
-                                isStreaming={message.isStreaming}
-                                attachments={message.attachments}
-                              />
-                            ))}
-                            <div ref={messagesEndRef} />
-                          </div>
-                        )}
+    <div className="flex h-screen flex-col bg-white text-gray-900 dark:bg-gray-900 dark:text-white">
+      {!user ? (
+        <CustomAuth supabaseClient={supabase} theme={settings.theme === 'dark' ? 'dark' : 'light'} />
+      ) : (
+        <div className="flex h-full flex-1 overflow-hidden">
+          <Sidebar />
+          
+          <AnimatePresence mode="wait">
+            {showSettingsPage ? (
+              <motion.div 
+                key="settings"
+                className="flex-1 overflow-hidden"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2 }}
+              >
+                <SettingsPage onBack={handleBackFromSettings} />
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="chat"
+                className="flex flex-1 flex-col overflow-hidden"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="flex items-center justify-between border-b p-4 dark:border-gray-700">
+                  <div className="flex items-center">
+                    <button
+                      onClick={() => setSidebarOpen(!sidebarOpen)}
+                      className="mr-4 rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 md:hidden"
+                    >
+                      {sidebarOpen ? <ChevronLeft /> : <ChevronRight />}
+                    </button>
+                    <h1 className="text-xl font-semibold">
+                      {currentChat
+                        ? chats.find((c) => c.id === currentChat)?.title || 'Chat'
+                        : 'New Chat'}
+                    </h1>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4" ref={messagesEndRef}>
+                  {messages.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center text-center">
+                      <div className="max-w-md space-y-4">
+                        <h2 className="text-2xl font-bold">Welcome to c1.chat</h2>
+                        <p className="text-gray-500 dark:text-gray-400">
+                          Start a conversation with the AI assistant. Your messages will appear here.
+                        </p>
                       </div>
-                      
-                      <div className="border-t p-4 dark:border-gray-700 bg-white dark:bg-gray-800">
-                        <div className="flex items-center gap-2 mb-2">
-                          <ModelSelector />
-                          <div className={`transition-opacity duration-300 ${isLoading ? 'opacity-100' : 'opacity-0'}`}>
-                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600 dark:border-gray-600 dark:border-t-blue-500"></div>
-                          </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {messages.map((message) => (
+                        <ImprovedChatMessage
+                          key={message.id}
+                          message={message.content}
+                          timestamp={message.created_at}
+                          isCurrentUser={message.user_id === user?.id}
+                          username={message.username}
+                          isAi={message.is_ai}
+                          aiModel={message.is_ai ? settings.aiModel : undefined}
+                          isStreaming={message.isStreaming}
+                          attachments={message.attachments}
+                        />
+                      ))}
+                      {isLoading && (
+                        <div className="flex items-center space-x-2 text-gray-500 dark:text-gray-400">
+                          <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-gray-600 [animation-delay:-0.3s]"></div>
+                          <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-gray-600 [animation-delay:-0.15s]"></div>
+                          <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-gray-600"></div>
                         </div>
-                        
-                        <div className="mb-2">
-                          <FileUploader
-                            onFileSelect={setSelectedFiles}
-                            onClearFiles={() => setSelectedFiles([])}
-                            selectedFiles={selectedFiles}
-                            isLoading={isLoading || isUploading}
-                          />
-                        </div>
-                        
-                        <form onSubmit={sendMessage} className="flex gap-2">
-                          <input
-                            type="text"
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t p-4 dark:border-gray-700">
+                  <div className="mx-auto max-w-4xl">
+                    <form onSubmit={sendMessage} className="space-y-4">
+                      <div className="flex gap-2 items-stretch">
+                        <ModelSelector compact={true} />
+                        <div className="relative flex-1">
+                          <textarea
                             value={newMessage}
                             onChange={(e) => setNewMessage(e.target.value)}
-                            placeholder={selectedFiles.length > 0 ? "Add a message or send files..." : "Type your message..."}
-                            className="flex-1 rounded-lg border border-gray-300 p-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                            disabled={isLoading || isUploading}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Type a message..."
+                            rows={1}
+                            className="min-h-[60px] w-full resize-none rounded-lg border border-gray-300 bg-white px-4 py-3 pr-12 text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-500"
                           />
-                          <button
-                            type="submit"
-                            disabled={(newMessage.trim() === '' && selectedFiles.length === 0) || isLoading || isUploading}
-                            className="rounded-lg bg-blue-600 p-2 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 dark:bg-blue-700 dark:hover:bg-blue-600 dark:focus:ring-offset-gray-800"
-                          >
-                            <Send className="h-5 w-5" />
-                          </button>
-                        </form>
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                            <FileUploader 
+                              onFileSelect={setSelectedFiles} 
+                              selectedFiles={selectedFiles} 
+                              onClearFiles={() => setSelectedFiles([])} 
+                              isLoading={isLoading} 
+                              iconOnly={true} 
+                            />
+                            <button
+                              type="submit"
+                              disabled={isLoading || newMessage.trim() === ''}
+                              className="rounded-full p-1 text-blue-600 transition-colors hover:bg-blue-100 disabled:text-gray-400 disabled:hover:bg-transparent dark:text-blue-500 dark:hover:bg-gray-700 dark:disabled:text-gray-600"
+                            >
+                              <Send className="h-5 w-5" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <div className="text-center">
-                      <h2 className="text-xl font-semibold mb-2 dark:text-white">Select a chat or create a new one</h2>
-                      <p className="text-gray-500 dark:text-gray-400">Choose a chat from the sidebar to start messaging</p>
-                    </div>
+                      
+                      {selectedFiles.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {selectedFiles.map((file, index) => (
+                            <div
+                              key={index}
+                              className="flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-sm dark:bg-gray-800"
+                            >
+                              <span className="truncate max-w-[150px]">{file.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedFiles(selectedFiles.filter((_, i) => i !== index))}
+                                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </form>
                   </div>
-                )}
-              </main>
-            </div>
-          </div>
-          
-          {/* Settings modal */}
-          {showSettings && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              {/* ... existing settings modal code ... */}
-            </div>
-          )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-      ) : (
-        <Auth supabaseClient={supabase} appearance={{ theme: ThemeSupa }} />
       )}
     </div>
   );

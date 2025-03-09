@@ -58,8 +58,8 @@ export function ImprovedChatMessage({
   isStreaming,
   attachments 
 }: ChatMessageProps) {
-  // Extract username from email if it's the current user
-  const displayName = isCurrentUser ? username.split('@')[0] : username;
+  // Use the username directly as it now contains the full name
+  const displayName = username || 'Anonymous';
   
   // Blinking cursor effect for streaming messages
   const [showCursor, setShowCursor] = useState(true);
