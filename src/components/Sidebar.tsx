@@ -224,7 +224,7 @@ export function Sidebar() {
         )}
       >
         <div className="flex h-16 items-center justify-between px-6 border-b border-gray-800">
-          <h1 className="text-xl font-bold text-white">c.chat</h1>
+          <h1 className="text-xl font-bold text-white">c1.chat</h1>
           <button
             onClick={() => setSidebarOpen(false)}
             className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-white dark:hover:bg-gray-800"
