@@ -1,7 +1,7 @@
 # C.Chat
 
 ## Description
-C.Chat is a Gemini Advanced competitor, it includes 1500 requests/month, for only $5! It features user authentication, chat history, and the ability to manage user settings. The application is built using React and Supabase for backend services.
+C.Chat is a Gemini Advanced competitor, it includes 1500 requests/month, for only $5!(/month) It features user authentication, chat history, and the ability to manage user settings. The application is built using React and Supabase for backend services.
 
 ## Features
 - **User Authentication**: Secure login and registration for users.
